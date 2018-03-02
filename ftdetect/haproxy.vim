@@ -1,1 +1,1 @@
-au BufRead,BufNewFile haproxy* set ft=haproxy
+au BufRead,BufNewFile haproxy*.c* set ft=haproxy
