@@ -1,13 +1,9 @@
 " Vim syntax file
 " Language:    HAproxy
-" Maintainer:  Bruno Michel <brmichel@free.fr>
-" Last Change: Mar 30, 2007
-" Version:     0.3
-" URL:         http://haproxy.1wt.eu/
-" URL:         http://vim.sourceforge.net/scripts/script.php?script_id=1845
-
-" It is suggested to add the following line to $HOME/.vimrc :
-"    au BufRead,BufNewFile haproxy* set ft=haproxy
+" Maintainer:  Dan Reif
+" Last Change: Mar 2, 2018
+" Version:     0.5
+" URL:         https://github.com/CH-DanReif/haproxy.vim
 
 " For version 5.x: Clear all syntax items
 " For version 6.x: Quit when a syntax file was already loaded
@@ -28,16 +24,16 @@ endif
 syn match   hapEscape    +\\\(\\\| \|n\|r\|t\|#\|x\x\x\)+
 
 " Comments
-syn match   hapComment   /#.*$/ contains=hapTodo
+syn match   hapComment   /\(^\|\s\)#.*$/ contains=hapTodo
 syn keyword hapTodo      contained TODO FIXME XXX
 syn case ignore
 
 " Sections
 syn match   hapSection   /^\s*\(global\|defaults\)/
-syn match   hapSection   /^\s*\(listen\|frontend\|backend\|ruleset\)/         skipwhite nextgroup=hapSectLabel
-syn match   hapSectLabel /\S\+/                                               skipwhite nextgroup=hapIp1 contained
-syn match   hapIp1       /\(\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\)\?:\d\{1,5}/        nextgroup=hapIp2 contained
-syn match   hapIp2       /,\(\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\)\?:\d\{1,5}/hs=s+1 nextgroup=hapIp2 contained
+syn match   hapSection   /^\s*\(backend\|frontend\|listen\|ruleset\|userlist\)/ skipwhite nextgroup=hapSectLabel
+syn match   hapSectLabel /\S\+/                                                 skipwhite nextgroup=hapIp1 contained
+syn match   hapIp1       /\(\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\)\?:\d\{1,5}/          nextgroup=hapIp2 contained
+syn match   hapIp2       /,\(\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\)\?:\d\{1,5}/hs=s+1   nextgroup=hapIp2 contained
 
 " Timeouts and such specified in ms
 syn match   hapNumberMS  /\d\+ms/ contained
@@ -122,8 +118,8 @@ syn keyword hapParam     crt-base                 skipwhite nextgroup=hapFilePat
 syn keyword hapParam     ssl-default-bind-ciphers skipwhite nextgroup=hapSSLCiphers
 syn keyword hapParam     ssl-default-bind-options skipwhite nextgroup=hapGLog,hapLogIp
 syn keyword hapParam     errorfile                skipwhite nextgroup=hapStatusPath
-syn keyword hapParam     http-request
 syn keyword hapParam     redirect
+syn keyword hapParam     http-request             skipwhite nextgroup=hapHttpRequestVerb
 
 " Options and additional parameters
 syn keyword hapAppSess   contained len timeout
@@ -163,6 +159,33 @@ syn region  hapRegexp    contained start=/\S/ end=/\(\s\|$\)/ skip=/\\ / nextgro
 syn region  hapRegRepl   contained start=/\S/ end=/$/ contains=hapComment,hapEscape,hapBackRef
 syn region  hapRegexp2   contained start=/\S/ end=/\(\s\|$\)/ skip=/\\ / nextgroup=hapSectLabel skipwhite
 syn match   hapBackref   contained /\\\d/
+
+"
+" http-request
+"
+" http-request verbs that don't allow parameters
+syn keyword hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestCond  allow tarpit silent-drop
+" http-request verbs with optional parameters
+syn keyword hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestCond,hapHttpRequestParam auth deny
+" http-request verbs with required parameters
+syn keyword hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestParam redirect add-header set-header capture del-header set-nice set-log-level replace-header replace-value set-method set-path set-query set-uri set-tos set-mark
+" http-request verbs with both parenthetical arguments and required parameters
+syn match   hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestParam /\(add-acl\|del-acl\|del-map\|set-map\|set-var\|unset-var\|sc-inc-gpc0\|sc-set-gpt0\)([^)]*)/
+" http-request verbs with parenthetical arguments, but without parameters
+syn match   hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestCond  /\(unset-var\|sc-inc-gpc0\)([^)]*)/
+
+" Listed first because we want to match this rather than hapHttpRequestParam,
+" which can be just about anything (including these two keywords).  'keyword'
+" is actually higher priority inside the highlighter, but we'll play it extra
+" safe by doing this ordering trick, too.
+syn keyword hapHttpRequestCond  contained if unless
+
+" A little bit of fancy footwork here, because we want to match the log-format
+" parameters inside of the string separately.
+syn match   hapHttpRequestParam contained skipwhite nextgroup=hapHttpRequestCond,hapHttpRequestParam /\S\+/ transparent
+syn match   hapHttpLogFormatStr /%\[[^][]\+\]/ contained containedin=hapHttpRequestParam
+syn match   hapHttpLogFormatErr /%\(\[[^][]\+\]\)\@!.*/ contained containedin=hapHttpRequestParam
+syn match   hapHttpRequestParamLiteral /[^%]\+/ contained containedin=hapHttpRequestParam
 
 
 " Transparent is a Vim keyword, so we need a regexp to match it
@@ -215,6 +238,12 @@ HiLink      hapAclFlagWithParameter  Special
 HiLink      hapAclFlagParameter      String
 HiLink      hapAclOperator           Operator
 HiLink      hapAclPattern            String
+
+HiLink      hapHttpRequestVerb  Operator
+HiLink      hapHttpRequestCond  Operator
+HiLink      hapHttpRequestParamLiteral String
+HiLink      hapHttpLogFormatStr Special
+HiLink      hapHttpLogFormatErr Error
 
 HiLink      hapOption    Operator
 HiLink      hapAppSess   hapOption
