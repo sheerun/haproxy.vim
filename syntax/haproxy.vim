@@ -8,24 +8,35 @@
 " For version 5.x: Clear all syntax items
 " For version 6.x: Quit when a syntax file was already loaded
 if version < 600
-	syntax clear
+  syntax clear
 elseif exists("b:current_syntax")
-	finish
+  finish
 endif
 
 if version >= 600
-	setlocal iskeyword=_,-,a-z,A-Z,48-57
+  setlocal iskeyword=_,-,a-z,A-Z,48-57
 else
-	set iskeyword=_,-,a-z,A-Z,48-57
+  set iskeyword=_,-,a-z,A-Z,48-57
 endif
 
 
 " Escaped chars
 syn match   hapEscape    +\\\(\\\| \|n\|r\|t\|#\|x\x\x\)+
 
+" Match anything other than whitespace; flag as error if found.  'contained'
+" because comments are valid where otherwise only hapNothing is.
+syn match   hapNothingErr /\s*\zs[^# \t][^#]*/   contained nextgroup=hapGreedyComment
+
 " Comments
-syn match   hapComment   /\(^\|\s\)#.*$/ contains=hapTodo
-syn keyword hapTodo      contained TODO FIXME XXX
+syn match   hapComment   /\(^\|\s\)#.*$/         contains=hapTodo
+" `acl foo path_reg hi[#]mom` is an error because [ is unclosed.  (!!!)
+syn match   hapGreedyComment /#.*$/              contained containedin=hapAclRemainder contains=hapTodo
+syn keyword hapTodo      TODO FIXME XXX          contained
+
+" `daemon#hi mom` is perfectly valid.  :/
+syn cluster hapNothing    contains=hapNothingErr,hapGreedyComment
+
+" Case-insensitive matching
 syn case ignore
 
 " Sections
@@ -35,25 +46,53 @@ syn match   hapSectLabel /\S\+/                                                 
 syn match   hapIp1       /\(\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\)\?:\d\{1,5}/          nextgroup=hapIp2 contained
 syn match   hapIp2       /,\(\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\)\?:\d\{1,5}/hs=s+1   nextgroup=hapIp2 contained
 
-" Timeouts and such specified in ms
-syn match   hapNumberMS  /\d\+ms/ contained
-" Timeouts generally specified in whole seconds
-syn match   hapNumberSec /\d\+s/ contained
+" Timeouts.  We try to hint towards the use of 'ms' and 's' when
+" g:haproxy_guess_ms_sec is set.  We consider the lack of either 'ms' or 's'
+" as an error when haproxy_enforce_ms_sec is set.  (HAproxy's default is 'ms',
+" but that arguably leads to ambiguity in the config.)
+if get(g:, 'haproxy_guess_ms_sec', 1)
+  " Timeouts and such specified in ms, where seconds are *allowed*, but are
+  " probably a mistake.
+  syn match   hapNumberMS  /\d\+m\?s/                                        contained transparent
+  syn match   hapError     /\d\+\zss\ze/                                     contained containedin=hapNumberMS
+endif
+if get(g:, 'haproxy_enforce_ms_sec', 1)
+  syn match   hapNumberMS  /\d\+\(m\?s\)\?/                                  contained transparent
+  syn match   hapError     /\d\+\(m\?s\)\@!\(\D\|$\)/                        contained containedin=hapNumberMS
+  syn match   hapNumberMS  /\d\+m\?s/                                        contained
+else
+  syn match   hapNumberMS  /\d\+m\?s/                                        contained
+endif
+if get(g:, 'haproxy_guess_ms_sec', 1)
+  " Timeouts generally specified in whole seconds, where we want to highlight
+  " errant 'm's.
+  syn match   hapNumberSec /\d\+m\?s/                                        contained transparent
+  syn match   hapError     /\d\+\zsm\zes/                                    contained containedin=hapNumberSec
+endif
+if get(g:, 'haproxy_enforce_ms_sec', 1)
+  syn match   hapNumberSec /\d\+\(m\?s\)\?/                                  contained transparent
+  syn match   hapError     /\d\+\(m\?s\)\@!\(\D\|$\)/                        contained containedin=hapNumberSec
+  syn match   hapNumberSec /\d\+m\?s/                                        contained
+else
+  syn match   hapNumberSec /\d\+m\?s/                                        contained
+endif
 " Other numbers, no 'ms'.
-syn match   hapNumber    /[0-9]\+/ contained
+syn match   hapNumber    /[0-9]\+/                                           contained
 
 " Timeout types
-syn keyword hapTimeoutType connect client server skipwhite nextgroup=hapNumberMS contained
+syn keyword hapTimeoutType connect client server                             contained skipwhite nextgroup=hapNumberMS
 
 " URIs
-syn match hapAbsURI   /\/\S*/ contained
-syn match hapURI      /\S*/ contained
+syn match hapAbsURI   /\/\S*/                                                contained
+syn match hapURI      /\S*/                                                  contained
 
 " File paths (always absolute, and never just '/' unless you're insane)
-syn match hapFilePath /\/\S\+/ contained
+syn match hapFilePath /\/\S\+/                                               contained
 
 " SSL configuration keywords
-syn match hapSSLCiphers  /\([-+!]\?[A-Z0-9-]\+[:+]\)*[-+!]\?[A-Z0-9-]\+/ contained
+syn match hapSSLCiphersAll   /\s\+\zs.*/                                     contained transparent
+syn match hapSSLCiphersError /.\+/                                           contained containedin=hapSSLCiphersAll
+syn match hapSSLCiphers      /\([-+!]\?[A-Z0-9-]\+[:+]\)*[-+!]\?[A-Z0-9-]\+/ contained containedin=hapSSLCiphersAll
 
 "
 " ACLs
@@ -70,35 +109,50 @@ syn match hapAclFlag               /-[-in]/             contained skipwhite next
 syn match hapAclFlagWithParameter  /-[fmMu]/            contained skipwhite nextgroup=hapAclFlagParameter
 syn match hapAclFlagParameter      /\S\+/               contained skipwhite nextgroup=hapAclFlag,hapAclFlagWithParameter,hapAclOperator
 syn match hapAclOperator           /eq\|ge\|gt\|le\|lt/ contained skipwhite
-
+syn match hapAclRemainder          /.*/                 contained transparent
 
 " Generic tune.ssl
-syn match hapParam     /tune.ssl.[a-z0-9-]\+/
+syn match hapParam /tune\.ssl\.[a-z0-9-]\+/
 " tune.ssl where we know what follows
-syn match hapParam     /tune\.ssl\.default-dh-param/ skipwhite nextgroup=hapNumber
+syn match hapParam /tune\.ssl\.default-dh-param/  skipwhite nextgroup=hapNumber
+
+" Keywords deprecated for at least a decade.  Kill 'em.
+syn keyword hapError     cliexp srvexp
 
 " Parameters
 syn keyword hapParam     timeout                  skipwhite nextgroup=hapTimeoutType
 syn keyword hapParam     chroot pidfile           skipwhite nextgroup=hapFilePath
-syn keyword hapParam     cliexp clitimeout contimeout
-syn keyword hapParam     daemon debug disabled
-syn keyword hapParam     enabled
+syn keyword hapParam     clitimeout               skipwhite nextgroup=hapNumberMS
+syn keyword hapParam     contimeout               skipwhite nextgroup=hapNumberMS
+syn keyword hapParam     daemon debug disabled    skipwhite nextgroup=@hapNothing
+syn keyword hapParam     enabled                  skipwhite nextgroup=@hapNothing
 syn keyword hapParam     fullconn maxconn         skipwhite nextgroup=hapNumber
-syn keyword hapParam     gid grace group
-syn keyword hapParam     monitor-uri
-syn keyword hapParam     nbproc noepoll nopoll
-syn keyword hapParam     quiet
+syn keyword hapParam     gid                      skipwhite nextgroup=hapNumber
+syn keyword hapParam     group
+syn keyword hapParam     grace                    skipwhite nextgroup=hapNumberMS
+syn keyword hapParam     monitor-uri              skipwhite nextgroup=hapAbsURI
+syn keyword hapParam     nbproc                   skipwhite nextgroup=hapNumber
+syn keyword hapParam     noepoll nopoll           skipwhite nextgroup=@hapNothing
+syn keyword hapParam     quiet                    skipwhite nextgroup=@hapNothing
 syn keyword hapParam     redispatch retries       skipwhite nextgroup=hapNumber
-syn match hapParam       /reqi\?\(allow\|del\|deny\|pass\|tarpit\)/ skipwhite nextgroup=hapRegexp
-syn match hapParam       /rspi\?\(del\|deny\)/    skipwhite nextgroup=hapRegexp
+syn match   hapParam     /reqi\?\(allow\|del\)/   skipwhite nextgroup=hapRegexp
+syn match   hapParam     /reqi\?\(deny\|pass\)/   skipwhite nextgroup=hapRegexp
+syn match   hapParam     /reqi\?\(tarpit\)/       skipwhite nextgroup=hapRegexp
+syn match   hapParam     /rspi\?\(del\|deny\)/    skipwhite nextgroup=hapRegexp
 syn keyword hapParam     reqsetbe reqisetbe       skipwhite nextgroup=hapRegexp2
-syn keyword hapParam     reqadd reqiadd rspadd rspiadd
-syn keyword hapParam     server source srvexp srvtimeout
-syn keyword hapParam     uid ulimit-n user
+syn keyword hapParam     reqadd reqiadd
+syn keyword hapParam     rspadd rspiadd
+syn keyword hapParam     server source
+syn keyword hapParam     srvtimeout               skipwhite nextgroup=hapNumberMS
+syn keyword hapParam     uid ulimit-n             skipwhite nextgroup=hapNumber
+syn keyword hapParam     user
 syn keyword hapParam     acl                      skipwhite nextgroup=hapAclName
-syn keyword hapParam     reqrep reqirep rsprep rspirep    skipwhite nextgroup=hapRegexp
-syn keyword hapParam     errorloc errorloc302 errorloc303 skipwhite nextgroup=hapStatusURI
-syn keyword hapParam     default_backend use_backend      skipwhite nextgroup=hapSectLabel
+syn keyword hapParam     reqrep reqirep           skipwhite nextgroup=hapRegexp
+syn keyword hapParam     rsprep rspirep           skipwhite nextgroup=hapRegexp
+syn keyword hapParam     errorloc                 skipwhite nextgroup=hapStatusURI
+syn keyword hapParam     errorloc302 errorloc303  skipwhite nextgroup=hapStatusURI
+syn keyword hapParam     default_backend          skipwhite nextgroup=hapSectLabel
+syn keyword hapParam     use_backend              skipwhite nextgroup=hapSectLabel
 syn keyword hapParam     appsession               skipwhite nextgroup=hapAppSess
 syn keyword hapParam     bind                     skipwhite nextgroup=hapIp1
 syn keyword hapParam     balance                  skipwhite nextgroup=hapBalance
@@ -115,149 +169,174 @@ syn keyword hapParam     source                   skipwhite nextgroup=hapServerE
 syn keyword hapParam     log                      skipwhite nextgroup=hapGLog,hapLogIp,hapFilePath
 syn keyword hapParam     ca-base                  skipwhite nextgroup=hapFilePath
 syn keyword hapParam     crt-base                 skipwhite nextgroup=hapFilePath
-syn keyword hapParam     ssl-default-bind-ciphers skipwhite nextgroup=hapSSLCiphers
+syn keyword hapParam     ssl-default-bind-ciphers skipwhite nextgroup=hapSSLCiphersAll
 syn keyword hapParam     ssl-default-bind-options skipwhite nextgroup=hapGLog,hapLogIp
 syn keyword hapParam     errorfile                skipwhite nextgroup=hapStatusPath
-syn keyword hapParam     redirect
 syn keyword hapParam     http-request             skipwhite nextgroup=hapHttpRequestVerb
+" Transparent is a Vim keyword, so we need a regexp to match it
+syn match   hapParam     /transparent/
 
 " Options and additional parameters
-syn keyword hapAppSess   contained len timeout
-syn keyword hapBalance   contained roundrobin source
-syn keyword hapLen       contained len
-syn keyword hapGLog      contained global
-syn keyword hapMode      contained http tcp health
-syn keyword hapOption    contained abortonclose allbackups checkcache clitcpka dontlognull forceclose forwardfor http-server-close
-syn keyword hapOption    contained httpchk httpclose httplog keepalive logasap persist srvtcpka ssl-hello-chk
-syn keyword hapOption    contained tcplog tcpka tcpsplice
-syn keyword hapOption    contained except skipwhite nextgroup=hapIPv4Mask
-syn keyword hapStats     contained realm auth scope enable
-syn keyword hapStats     contained uri skipwhite nextgroup=hapAbsURI
-syn keyword hapStats     contained socket skipwhite nextgroup=hapFilePath
-syn keyword hapStats     contained timeout skipwhite nextgroup=hapNumberSec
-syn keyword hapLogFac    contained kern user mail daemon auth syslog lpr news nextgroup=hapLogLvl skipwhite
-syn keyword hapLogFac    contained uucp cron auth2 ftp ntp audit alert cron2  nextgroup=hapLogLvl skipwhite
-syn keyword hapLogFac    contained local0 local1 local2 local3 local4 local5 local6 local7 nextgroup=hapLogLvl skipwhite
-syn keyword hapLogLvl    contained emerg alert crit err warning notice info debug
-syn keyword hapCookieKey contained rewrite insert nocache postonly indirect prefix nextgroup=hapCookieKey skipwhite
-syn keyword hapCapture   contained cookie nextgroup=hapNameLen skipwhite
-syn keyword hapCapture   contained request response nextgroup=hapHeader skipwhite
-syn keyword hapHeader    contained header nextgroup=hapNameLen skipwhite
-syn keyword hapSrvKey    contained backup cookie check inter rise fall port source minconn maxconn weight usesrc
-syn match   hapStatus    contained /\d\{3}/
-syn match   hapStatusPath contained /\d\{3}/ skipwhite nextgroup=hapFilePath
-syn match   hapStatusURI contained /\d\{3}/ skipwhite nextgroup=hapURI
-syn match   hapIPv4Mask  contained /\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\(\/\d\{1,2}\)\?/
-syn match   hapLogIp     contained /\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}/   nextgroup=hapLogFac skipwhite
-syn match   hapIpPort    contained /\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}:\d\{1,5}/
-syn match   hapServerAd  contained /\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\(:[+-]\?\d\{1,5}\)\?/ nextgroup=hapSrvEOL skipwhite
-syn match   hapNameLen   contained /\S\+/ nextgroup=hapLen       skipwhite
-syn match   hapCookieNam contained /\S\+/ nextgroup=hapCookieKey skipwhite
-syn match   hapServerN   contained /\S\+/ nextgroup=hapServerAd  skipwhite
-syn region  hapSrvEOL    contained start=/\S/ end=/$/ contains=hapSrvKey
-syn region  hapRegexp    contained start=/\S/ end=/\(\s\|$\)/ skip=/\\ / nextgroup=hapRegRepl skipwhite
-syn region  hapRegRepl   contained start=/\S/ end=/$/ contains=hapComment,hapEscape,hapBackRef
-syn region  hapRegexp2   contained start=/\S/ end=/\(\s\|$\)/ skip=/\\ / nextgroup=hapSectLabel skipwhite
-syn match   hapBackref   contained /\\\d/
+syn keyword hapAppSess   len timeout                                                   contained
+syn keyword hapBalance   roundrobin source                                             contained
+syn keyword hapLen       len                                                           contained
+syn keyword hapGLog      global                                                        contained
+syn keyword hapMode      http tcp health                                               contained
+syn keyword hapOption    abortonclose allbackups checkcache clitcpka dontlognull       contained
+syn keyword hapOption    forceclose forwardfor http-server-close                       contained
+syn keyword hapOption    httpchk httpclose httplog keepalive logasap                   contained
+syn keyword hapOption    persist srvtcpka ssl-hello-chk                                contained
+syn keyword hapOption    tcplog tcpka tcpsplice                                        contained
+syn keyword hapOption    except                                                        contained skipwhite nextgroup=hapIPv4Mask
+" Transparent is a Vim keyword, so we need a regexp to match it
+syn match   hapOption    /transparent/                                                 contained
+syn keyword hapStats     realm auth scope enable                                       contained
+syn keyword hapStats     uri                                                           contained skipwhite nextgroup=hapAbsURI
+syn keyword hapStats     socket                                                        contained skipwhite nextgroup=hapFilePath
+syn keyword hapStats     timeout                                                       contained skipwhite nextgroup=hapNumberMS
+syn keyword hapLogFac    kern user mail daemon auth syslog lpr news                    contained skipwhite nextgroup=hapLogLvl
+syn keyword hapLogFac    uucp cron auth2 ftp ntp audit alert cron2                     contained skipwhite nextgroup=hapLogLvl
+syn keyword hapLogFac    local0 local1 local2 local3 local4 local5 local6 local7       contained skipwhite nextgroup=hapLogLvl
+syn keyword hapLogLvl    emerg alert crit err warning notice info debug                contained
+syn keyword hapCookieKey rewrite insert nocache postonly indirect prefix               contained skipwhite nextgroup=hapCookieKey
+syn keyword hapCapture   cookie                                                        contained skipwhite nextgroup=hapNameLen
+syn keyword hapCapture   request response                                              contained skipwhite nextgroup=hapHeader
+syn keyword hapHeader    header                                                        contained skipwhite nextgroup=hapNameLen
+syn keyword hapSrvKey    backup cookie check inter rise fall port                      contained
+syn keyword hapSrvKey    source minconn maxconn weight usesrc                          contained
+syn match   hapStatus    /\d\{3}/                                                      contained
+syn match   hapStatusPath /\d\{3}/                                                     contained skipwhite nextgroup=hapFilePath
+syn match   hapStatusURI /\d\{3}/                                                      contained skipwhite nextgroup=hapURI
+syn match   hapIPv4Mask  /\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\(\/\d\{1,2}\)\?/      contained
+syn match   hapLogIp     /\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}/                      contained skipwhite nextgroup=hapLogFac
+syn match   hapIpPort    /\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}:\d\{1,5}/             contained
+syn match   hapServerAd  /\d\{1,3}\.\d\{1,3}\.\d\{1,3}\.\d\{1,3}\(:[+-]\?\d\{1,5}\)\?/ contained skipwhite nextgroup=hapSrvEOL
+syn match   hapNameLen   /\S\+/                                                        contained skipwhite nextgroup=hapLen
+syn match   hapCookieNam /\S\+/                                                        contained skipwhite nextgroup=hapCookieKey
+syn match   hapServerN   /\S\+/                                                        contained skipwhite nextgroup=hapServerAd
+syn region  hapSrvEOL    start=/\S/ end=/$/                         contains=hapSrvKey contained
+
+" Brutally stolen from https://github.com/vim-perl/vim-perl:
+syn match   hapPerlSpecialMatch "\\\%(\o\{1,3}\|x\%({\x\+}\|\x\{1,2}\)\|c.\|[^cx]\)" contained extend
+syn match   hapPerlSpecialMatch "\\." extend contained contains=NONE
+syn match   hapPerlSpecialMatch "\\\\" contained
+syn match   hapPerlSpecialMatch "\\[1-9]" contained extend
+syn match   hapPerlSpecialMatch "\\g\%(\d\+\|{\%(-\=\d\+\|\h\w*\)}\)" contained
+syn match   hapPerlSpecialMatch "\\k\%(<\h\w*>\|'\h\w*'\)" contained
+syn match   hapPerlSpecialMatch "{\d\+\%(,\%(\d\+\)\=\)\=}" contained
+syn match   hapPerlSpecialMatch "\[[]-]\=[^\[\]]*[]-]\=\]" contained extend
+syn match   hapPerlSpecialMatch "[+*()?.]" contained
+syn match   hapPerlSpecialMatch "(?[#:=!]" contained
+syn match   hapPerlSpecialMatch "(?[impsx]*\%(-[imsx]\+\)\=)" contained
+syn match   hapPerlSpecialMatch "(?\%([-+]\=\d\+\|R\))" contained
+syn match   hapPerlSpecialMatch "(?\%(&\|P[>=]\)\h\w*)" contained
+
+syn region  hapRegexp    contained start=/\S/ end=/\(\s\|$\)/ skip=/\\ / contains=hapPerlSpecialMatch nextgroup=hapRegRepl skipwhite
+syn region  hapRegRepl   contained start=/\S/ end=/$/ contains=hapComment,hapEscape,hapPerlSpecialMatch
+syn region  hapRegexp2   contained start=/\S/ end=/\(\s\|$\)/ skip=/\\ / contains=hapPerlSpecialMatch nextgroup=hapSectLabel skipwhite
 
 "
 " http-request
 "
 " http-request verbs that don't allow parameters
-syn keyword hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestCond  allow tarpit silent-drop
+syn keyword hapHttpRequestVerb  allow tarpit silent-drop                               contained skipwhite nextgroup=hapHttpRequestCond
 " http-request verbs with optional parameters
-syn keyword hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestCond,hapHttpRequestParam auth deny
+syn keyword hapHttpRequestVerb  auth deny                                              contained skipwhite nextgroup=hapHttpRequestCond,hapHttpRequestParam
 " http-request verbs with required parameters
-syn keyword hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestParam redirect add-header set-header capture del-header set-nice set-log-level replace-header replace-value set-method set-path set-query set-uri set-tos set-mark
+syn keyword hapHttpRequestVerb  redirect add-header set-header capture                 contained skipwhite nextgroup=hapHttpRequestParam
+syn keyword hapHttpRequestVerb  del-header set-nice set-log-level replace-header       contained skipwhite nextgroup=hapHttpRequestParam
+syn keyword hapHttpRequestVerb  replace-value set-method set-path set-query            contained skipwhite nextgroup=hapHttpRequestParam
+syn keyword hapHttpRequestVerb  set-uri set-tos set-mark                               contained skipwhite nextgroup=hapHttpRequestParam
 " http-request verbs with both parenthetical arguments and required parameters
-syn match   hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestParam /\(add-acl\|del-acl\|del-map\|set-map\|set-var\|unset-var\|sc-inc-gpc0\|sc-set-gpt0\)([^)]*)/
+syn match   hapHttpRequestVerb  /\(add-acl\|del-acl\|del-map\|set-map\)([^)]*)/        contained skipwhite nextgroup=hapHttpRequestParam
+syn match   hapHttpRequestVerb  /\(set-var\|unset-var\)([^)]*)/                        contained skipwhite nextgroup=hapHttpRequestParam
+syn match   hapHttpRequestVerb  /\(sc-inc-gpc0\|sc-set-gpt0\)([^)]*)/                  contained skipwhite nextgroup=hapHttpRequestParam
 " http-request verbs with parenthetical arguments, but without parameters
-syn match   hapHttpRequestVerb  contained skipwhite nextgroup=hapHttpRequestCond  /\(unset-var\|sc-inc-gpc0\)([^)]*)/
+syn match   hapHttpRequestVerb  /\(unset-var\|sc-inc-gpc0\)([^)]*)/                    contained skipwhite nextgroup=hapHttpRequestCond
 
 " Listed first because we want to match this rather than hapHttpRequestParam,
 " which can be just about anything (including these two keywords).  'keyword'
 " is actually higher priority inside the highlighter, but we'll play it extra
 " safe by doing this ordering trick, too.
-syn keyword hapHttpRequestCond  contained if unless
+syn keyword hapHttpRequestCond  if unless                                              contained
 
 " A little bit of fancy footwork here, because we want to match the log-format
 " parameters inside of the string separately.
-syn match   hapHttpRequestParam contained skipwhite nextgroup=hapHttpRequestCond,hapHttpRequestParam /\S\+/ transparent
-syn match   hapHttpLogFormatStr /%\[[^][]\+\]/ contained containedin=hapHttpRequestParam
+syn match   hapHttpRequestParam /|S\+/                  contained skipwhite nextgroup=hapHttpRequestCond,hapHttpRequestParam transparent
+syn match   hapHttpLogFormatStr /%\[[^][]\+\]/          contained containedin=hapHttpRequestParam
 syn match   hapHttpLogFormatErr /%\(\[[^][]\+\]\)\@!.*/ contained containedin=hapHttpRequestParam
-syn match   hapHttpRequestParamLiteral /[^%]\+/ contained containedin=hapHttpRequestParam
-
-
-" Transparent is a Vim keyword, so we need a regexp to match it
-syn match   hapParam     +transparent+
-syn match   hapOption    +transparent+ contained
+syn match   hapHttpRequestParamLiteral /[^%]\+/         contained containedin=hapHttpRequestParam
 
 
 " Define the default highlighting.
 " For version 5.7 and earlier: only when not done already
 " For version 5.8 and later: only when an item doesn't have highlighting yet
 if version < 508
-	command -nargs=+ HiLink hi link <args>
+  command -nargs=+ HiLink hi link <args>
 else
-	command -nargs=+ HiLink hi def link <args>
+  command -nargs=+ HiLink hi def link <args>
 endif
 
-HiLink      hapEscape    SpecialChar
-HiLink      hapBackRef   Special
-HiLink      hapComment   Comment
-HiLink      hapTodo      Todo
-HiLink      hapSection   Underlined
-HiLink      hapSectLabel Identifier
-HiLink      hapParam     Keyword
-HiLink      hapSSLCiphers String " Tried this as hapParam, but it's way too loud.
-HiLink      hapTimeoutType hapParam
+HiLink hapError                   Error
+HiLink hapNothingErr              hapError
+HiLink hapEscape                  SpecialChar
+HiLink hapComment                 Comment
+HiLink hapGreedyComment           Comment
+HiLink hapTodo                    Todo
+HiLink hapSection                 Underlined
+HiLink hapSectLabel               Identifier
+HiLink hapParam                   Keyword
+HiLink hapSSLCiphers              String
+HiLink hapSSLCiphersError         Error
+HiLink hapTimeoutType             hapParam
 
-HiLink      hapRegexp    String
-HiLink      hapRegexp2   hapRegexp
-HiLink      hapFilePath  String
-HiLink      hapURI       String
-HiLink      hapAbsURI    hapURI
-HiLink      hapIp1       Number
-HiLink      hapIp2       hapIp1
-HiLink      hapLogIp     hapIp1
-HiLink      hapIpPort    hapIp1
-HiLink      hapIPv4Mask  hapIp1
-HiLink      hapServerAd  hapIp1
-HiLink      hapStatus    Number
-HiLink      hapStatusPath hapStatus
-HiLink      hapStatusURI hapStatus
-HiLink      hapNumber    Number
-HiLink      hapNumberMS  Number
-HiLink      hapNumberSec Number
+HiLink hapRegexp                  String
+HiLink hapRegexp2                 hapRegexp
+HiLink hapPerlSpecialMatch        Special
+HiLink hapFilePath                String
+HiLink hapURI                     String
+HiLink hapAbsURI                  hapURI
+HiLink hapIp1                     Number
+HiLink hapIp2                     hapIp1
+HiLink hapLogIp                   hapIp1
+HiLink hapIpPort                  hapIp1
+HiLink hapIPv4Mask                hapIp1
+HiLink hapServerAd                hapIp1
+HiLink hapStatus                  Number
+HiLink hapStatusPath              hapStatus
+HiLink hapStatusURI               hapStatus
+HiLink hapNumber                  Number
+HiLink hapNumberMS                hapNumber
+HiLink hapNumberSec               hapNumber
 
-HiLink      hapAclName               Identifier
-HiLink      hapAclCriterion          String
-HiLink      hapAclConverterOrNothing Special
-HiLink      hapAclFlag               Special
-HiLink      hapAclFlagWithParameter  Special
-HiLink      hapAclFlagParameter      String
-HiLink      hapAclOperator           Operator
-HiLink      hapAclPattern            String
+HiLink hapAclName                 Identifier
+HiLink hapAclCriterion            String
+HiLink hapAclConverterOrNothing   Special
+HiLink hapAclFlag                 Special
+HiLink hapAclFlagWithParameter    Special
+HiLink hapAclFlagParameter        String
+HiLink hapAclOperator             Operator
+HiLink hapAclPattern              String
 
-HiLink      hapHttpRequestVerb  Operator
-HiLink      hapHttpRequestCond  Operator
-HiLink      hapHttpRequestParamLiteral String
-HiLink      hapHttpLogFormatStr Special
-HiLink      hapHttpLogFormatErr Error
+HiLink hapHttpRequestVerb         Operator
+HiLink hapHttpRequestCond         Operator
+HiLink hapHttpRequestParamLiteral String
+HiLink hapHttpLogFormatStr        Special
+HiLink hapHttpLogFormatErr        Error
 
-HiLink      hapOption    Operator
-HiLink      hapAppSess   hapOption
-HiLink      hapBalance   hapOption
-HiLink      hapCapture   hapOption
-HiLink      hapCookieKey hapOption
-HiLink      hapHeader    hapOption
-HiLink      hapGLog      hapOption
-HiLink      hapLogFac    hapOption
-HiLink      hapLogLvl    hapOption
-HiLink      hapMode      hapOption
-HiLink      hapStats     hapOption
-HiLink      hapLen       hapOption
-HiLink      hapSrvKey    hapOption
+HiLink hapOption                  Operator
+HiLink hapAppSess                 hapOption
+HiLink hapBalance                 hapOption
+HiLink hapCapture                 hapOption
+HiLink hapCookieKey               hapOption
+HiLink hapHeader                  hapOption
+HiLink hapGLog                    hapOption
+HiLink hapLogFac                  hapOption
+HiLink hapLogLvl                  hapOption
+HiLink hapMode                    hapOption
+HiLink hapStats                   hapOption
+HiLink hapLen                     hapOption
+HiLink hapSrvKey                  hapOption
 
 
 delcommand HiLink
