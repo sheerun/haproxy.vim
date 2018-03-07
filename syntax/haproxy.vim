@@ -116,6 +116,8 @@ syn match hapParam /tune\.ssl\.[a-z0-9-]\+/
 " tune.ssl where we know what follows
 syn match hapParam /tune\.ssl\.default-dh-param/  skipwhite nextgroup=hapNumber
 
+syn keyword hapSSLServerVerify none required      contained skipwhite nextgroup=@hapNothing
+
 " Keywords deprecated for at least a decade.  Kill 'em.
 syn keyword hapError     cliexp srvexp
 
@@ -171,6 +173,7 @@ syn keyword hapParam     ca-base                  skipwhite nextgroup=hapFilePat
 syn keyword hapParam     crt-base                 skipwhite nextgroup=hapFilePath
 syn keyword hapParam     ssl-default-bind-ciphers skipwhite nextgroup=hapSSLCiphersAll
 syn keyword hapParam     ssl-default-bind-options skipwhite nextgroup=hapGLog,hapLogIp
+syn keyword hapParam     ssl-server-verify        skipwhite nextgroup=hapSSLServerVerify
 syn keyword hapParam     errorfile                skipwhite nextgroup=hapStatusPath
 syn keyword hapParam     http-request             skipwhite nextgroup=hapHttpRequestVerb
 " Transparent is a Vim keyword, so we need a regexp to match it
