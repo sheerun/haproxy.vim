@@ -23,6 +23,8 @@ endif
 " Escaped chars
 syn match   hapEscape    +\\\(\\\| \|n\|r\|t\|#\|x\x\x\)+
 
+" Match whitespace at the end of a line
+syn match   hapNothingErr /\s\+\ze\(#.*\)\?$/    contained nextgroup=hapGreedyComment
 " Match anything other than whitespace; flag as error if found.  'contained'
 " because comments are valid where otherwise only hapNothing is.
 syn match   hapNothingErr /\s*\zs[^# \t][^#]*/   contained nextgroup=hapGreedyComment
@@ -137,20 +139,23 @@ syn keyword hapParam     nbproc                   skipwhite nextgroup=hapNumber
 syn keyword hapParam     noepoll nopoll           skipwhite nextgroup=@hapNothing
 syn keyword hapParam     quiet                    skipwhite nextgroup=@hapNothing
 syn keyword hapParam     redispatch retries       skipwhite nextgroup=hapNumber
-syn match   hapParam     /reqi\?\(allow\|del\)/   skipwhite nextgroup=hapRegexp
-syn match   hapParam     /reqi\?\(deny\|pass\)/   skipwhite nextgroup=hapRegexp
-syn match   hapParam     /reqi\?\(tarpit\)/       skipwhite nextgroup=hapRegexp
-syn match   hapParam     /rspi\?\(del\|deny\)/    skipwhite nextgroup=hapRegexp
-syn keyword hapParam     reqsetbe reqisetbe       skipwhite nextgroup=hapRegexp2
-syn keyword hapParam     reqadd reqiadd
-syn keyword hapParam     rspadd rspiadd
+" 'add' takes exactly one string, not regexes
+syn keyword hapParam     reqadd reqiadd           skipwhite nextgroup=hapOneStringIfUnless
+syn keyword hapParam     rspadd rspiadd           skipwhite nextgroup=hapOneStringIfUnless
+" All of these take exactly one regexp
+syn match   hapParam     /reqi\?\(allow\|del\)/   skipwhite nextgroup=hapOneRegexpIfUnless
+syn match   hapParam     /reqi\?\(deny\|pass\)/   skipwhite nextgroup=hapOneRegexpIfUnless
+syn match   hapParam     /reqi\?\(tarpit\)/       skipwhite nextgroup=hapOneRegexpIfUnless
+syn match   hapParam     /rspi\?\(del\|deny\)/    skipwhite nextgroup=hapOneRegexpIfUnless
+" 'rep' is unique in taking two regexes (one search, one replace)
+syn keyword hapParam     reqrep reqirep           skipwhite nextgroup=hapRegSearchReplIfUnless
+syn keyword hapParam     rsprep rspirep           skipwhite nextgroup=hapRegSearchReplIfUnless
+syn keyword hapParam     reqsetbe reqisetbe       skipwhite nextgroup=hapRegexpBE
 syn keyword hapParam     server source
 syn keyword hapParam     srvtimeout               skipwhite nextgroup=hapNumberMS
 syn keyword hapParam     uid ulimit-n             skipwhite nextgroup=hapNumber
 syn keyword hapParam     user
 syn keyword hapParam     acl                      skipwhite nextgroup=hapAclName
-syn keyword hapParam     reqrep reqirep           skipwhite nextgroup=hapRegexp
-syn keyword hapParam     rsprep rspirep           skipwhite nextgroup=hapRegexp
 syn keyword hapParam     errorloc                 skipwhite nextgroup=hapStatusURI
 syn keyword hapParam     errorloc302 errorloc303  skipwhite nextgroup=hapStatusURI
 syn keyword hapParam     default_backend          skipwhite nextgroup=hapSectLabel
@@ -234,17 +239,18 @@ syn match   hapPerlSpecialMatch "(?[impsx]*\%(-[imsx]\+\)\=)" contained
 syn match   hapPerlSpecialMatch "(?\%([-+]\=\d\+\|R\))" contained
 syn match   hapPerlSpecialMatch "(?\%(&\|P[>=]\)\h\w*)" contained
 
-syn region  hapRegexp    contained start=/\S/ end=/\(\s\|$\)/ skip=/\\ / contains=hapPerlSpecialMatch nextgroup=hapRegRepl skipwhite
-syn region  hapRegRepl   contained start=/\S/ end=/$/ contains=hapComment,hapEscape,hapPerlSpecialMatch
-syn region  hapRegexp2   contained start=/\S/ end=/\(\s\|$\)/ skip=/\\ / contains=hapPerlSpecialMatch nextgroup=hapSectLabel skipwhite
+syn region  hapOneRegexpIfUnless     contained start=/\S/ end=/\(\ze\s\|$\)/ skip=/\\ / contains=hapPerlSpecialMatch nextgroup=hapIfUnless,@hapNothing skipwhite
+syn region  hapRegSearchReplIfUnless contained start=/\S/ end=/\(\s\|$\)/    skip=/\\ / contains=hapPerlSpecialMatch nextgroup=hapRegReplIfUnless      skipwhite
+syn region  hapRegReplIfUnless       contained start=/\S/ end=/$/  contains=hapComment,hapEscape,hapPerlSpecialMatch nextgroup=hapIfUnless             skipwhite
+syn region  hapRegexpBE              contained start=/\S/ end=/\(\s\|$\)/    skip=/\\ / contains=hapPerlSpecialMatch nextgroup=hapSectLabel            skipwhite
 
 "
 " http-request
 "
 " http-request verbs that don't allow parameters
-syn keyword hapHttpRequestVerb  allow tarpit silent-drop                               contained skipwhite nextgroup=hapHttpRequestCond
+syn keyword hapHttpRequestVerb  allow tarpit silent-drop                               contained skipwhite nextgroup=hapHttpIfUnless
 " http-request verbs with optional parameters
-syn keyword hapHttpRequestVerb  auth deny                                              contained skipwhite nextgroup=hapHttpRequestCond,hapHttpRequestParam
+syn keyword hapHttpRequestVerb  auth deny                                              contained skipwhite nextgroup=hapHttpIfUnless,hapHttpRequestParam
 " http-request verbs with required parameters
 syn keyword hapHttpRequestVerb  redirect add-header set-header capture                 contained skipwhite nextgroup=hapHttpRequestParam
 syn keyword hapHttpRequestVerb  del-header set-nice set-log-level replace-header       contained skipwhite nextgroup=hapHttpRequestParam
@@ -255,17 +261,17 @@ syn match   hapHttpRequestVerb  /\(add-acl\|del-acl\|del-map\|set-map\)([^)]*)/ 
 syn match   hapHttpRequestVerb  /\(set-var\|unset-var\)([^)]*)/                        contained skipwhite nextgroup=hapHttpRequestParam
 syn match   hapHttpRequestVerb  /\(sc-inc-gpc0\|sc-set-gpt0\)([^)]*)/                  contained skipwhite nextgroup=hapHttpRequestParam
 " http-request verbs with parenthetical arguments, but without parameters
-syn match   hapHttpRequestVerb  /\(unset-var\|sc-inc-gpc0\)([^)]*)/                    contained skipwhite nextgroup=hapHttpRequestCond
+syn match   hapHttpRequestVerb  /\(unset-var\|sc-inc-gpc0\)([^)]*)/                    contained skipwhite nextgroup=hapHttpIfUnless
 
 " Listed first because we want to match this rather than hapHttpRequestParam,
 " which can be just about anything (including these two keywords).  'keyword'
 " is actually higher priority inside the highlighter, but we'll play it extra
 " safe by doing this ordering trick, too.
-syn keyword hapHttpRequestCond  if unless                                              contained
+syn keyword hapIfUnless         if unless                                              contained skipwhite nextgroup=hapIfUnlessCond
 
 " A little bit of fancy footwork here, because we want to match the log-format
 " parameters inside of the string separately.
-syn match   hapHttpRequestParam /|S\+/                  contained skipwhite nextgroup=hapHttpRequestCond,hapHttpRequestParam transparent
+syn match   hapHttpRequestParam /|S\+/                  contained skipwhite nextgroup=hapIfUnless,hapHttpRequestParam transparent
 syn match   hapHttpLogFormatStr /%\[[^][]\+\]/          contained containedin=hapHttpRequestParam
 syn match   hapHttpLogFormatErr /%\(\[[^][]\+\]\)\@!.*/ contained containedin=hapHttpRequestParam
 syn match   hapHttpRequestParamLiteral /[^%]\+/         contained containedin=hapHttpRequestParam
@@ -293,8 +299,10 @@ HiLink hapSSLCiphers              String
 HiLink hapSSLCiphersError         Error
 HiLink hapTimeoutType             hapParam
 
-HiLink hapRegexp                  String
-HiLink hapRegexp2                 hapRegexp
+HiLink hapOneRegexpIfUnless       String
+HiLink hapTwoRegexpsIfUnless      hapRegexp
+HiLink hapRegReplIfUnless         hapRegexp
+HiLink hapRegexpBE                hapRegexp
 HiLink hapPerlSpecialMatch        Special
 HiLink hapFilePath                String
 HiLink hapURI                     String
@@ -322,7 +330,7 @@ HiLink hapAclOperator             Operator
 HiLink hapAclPattern              String
 
 HiLink hapHttpRequestVerb         Operator
-HiLink hapHttpRequestCond         Operator
+HiLink hapIfUnless            Operator
 HiLink hapHttpRequestParamLiteral String
 HiLink hapHttpLogFormatStr        Special
 HiLink hapHttpLogFormatErr        Error
